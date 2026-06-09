@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Automação Trello · OAB SP</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script type="text/javascript">
+// Carrega MSAL dinamicamente com fallback
+(function() {
+  var urls = [
+    'https://unpkg.com/@azure/msal-browser@2.38.3/lib/msal-browser.min.js',
+    'https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js',
+    'https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js'
+  ];
+  var idx = 0;
+  function tryLoad() {
+    if (idx >= urls.length) {
+      console.error('MSAL: todos os CDNs falharam');
+      return;
+    }
+    var s = document.createElement('script');
+    s.src = urls[idx++];
+    s.onerror = tryLoad;
+    document.head.appendChild(s);
+  }
+  tryLoad();
+})();
+</script>
+<style>
+  :root {
+    --bg: #0d0f14;
+    --surface: #151820;
+    --surface2: #1c2030;
+    --border: #2a2f42;
+    --accent: #4f6ef7;
+    --accent2: #7c3aed;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+    --text: #e8eaf0;
+    --muted: #6b7280;
+    --font: 'Sora', sans-serif;
+    --mono: 'JetBrains Mono', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; overflow-x: hidden; }
+  body::before {
+    content: ''; position: fixed; inset: 0;
+    background-image: linear-gradient(rgba(79,110,247,.04) 1px, transparent 1px), linear-gradient(90deg, rgba(79,110,247,.04) 1px, transparent 1px);
+    background-size: 40px 40px; pointer-events: none; z-index: 0;
+  }
+  .wrapper { position: relative; z-index: 1; max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; }
+  header { display: flex; align-items: center; gap: 16px; margin-bottom: 48px; }
+  .logo { width: 44px; height: 44px; background: linear-gradient(135deg, var(--accent), var(--accent2)); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; box-shadow: 0 0 20px rgba(79,110,247,.3); }
+  header h1 { font-size: 22px; font-weight: 700; letter-spacing: -.5px; }
+  header p { font-size: 13px; color: var(--muted); margin-top: 2px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 28px; margin-bottom: 20px; }
+  .card-title { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; color: var(--accent); margin-bottom: 20px; display: flex; align-items: center; gap: 8px; }
+  .card-title::before { content: ''; width: 3px; height: 14px; background: var(--accent); border-radius: 2px; }
+  .field { margin-bottom: 16px; }
+  label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 8px; }
+  input[type="text"], input[type="password"] { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; color: var(--text); font-family: var(--mono); font-size: 13px; outline: none; transition: border-color .2s; }
+  input[type="text"]:focus, input[type="password"]:focus { border-color: var(--accent); }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .btn-ms { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 14px 20px; color: var(--text); font-family: var(--font); font-size: 14px; font-weight: 600; cursor: pointer; transition: border-color .2s, background .2s; display: flex; align-items: center; justify-content: center; gap: 10px; }
+  .btn-ms:hover { border-color: var(--accent); background: rgba(79,110,247,.05); }
+  .btn-ms.connected { border-color: var(--green); background: rgba(34,197,94,.05); color: var(--green); }
+  .btn-ms.loading { opacity: .6; cursor: not-allowed; }
+  .ms-user-info { margin-top: 12px; padding: 12px 16px; background: rgba(34,197,94,.08); border: 1px solid rgba(34,197,94,.25); border-radius: 10px; font-size: 13px; font-family: var(--mono); color: var(--green); display: none; align-items: center; gap: 8px; }
+  .upload-area { border: 2px dashed var(--border); border-radius: 12px; padding: 32px; text-align: center; cursor: pointer; transition: border-color .2s, background .2s; position: relative; }
+  .upload-area:hover, .upload-area.drag { border-color: var(--accent); background: rgba(79,110,247,.05); }
+  .upload-area input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+  .upload-icon { font-size: 28px; margin-bottom: 10px; }
+  .upload-area p { font-size: 14px; color: var(--muted); }
+  .upload-area strong { color: var(--accent); }
+  .upload-area.done { border-color: var(--green); background: rgba(34,197,94,.05); }
+  .upload-area.done p { color: var(--green); }
+  .table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead { background: var(--surface2); }
+  th { padding: 12px 14px; text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted); border-bottom: 1px solid var(--border); white-space: nowrap; }
+  td { padding: 11px 14px; border-bottom: 1px solid rgba(42,47,66,.6); color: var(--text); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(79,110,247,.04); }
+  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; font-family: var(--mono); }
+  .badge-sim { background: rgba(34,197,94,.15); color: var(--green); }
+  .badge-nao { background: rgba(107,114,128,.15); color: var(--muted); }
+  .badge-pendente { background: rgba(234,179,8,.15); color: var(--yellow); }
+  .badge-ok { background: rgba(34,197,94,.15); color: var(--green); }
+  .badge-erro { background: rgba(239,68,68,.15); color: var(--red); }
+  .badge-skip { background: rgba(107,114,128,.15); color: var(--muted); }
+  .btn-run { width: 100%; background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; border: none; border-radius: 12px; padding: 16px; font-family: var(--font); font-size: 15px; font-weight: 700; cursor: pointer; letter-spacing: .5px; transition: opacity .2s, transform .1s; }
+  .btn-run:disabled { opacity: .4; cursor: not-allowed; }
+  .btn-run:not(:disabled):hover { opacity: .9; }
+  .btn-run:not(:disabled):active { transform: scale(.98); }
+  .progress-wrap { display: none; margin-top: 20px; }
+  .progress-wrap.visible { display: block; }
+  .progress-bar-bg { background: var(--surface2); border-radius: 99px; height: 6px; overflow: hidden; margin-bottom: 10px; }
+  .progress-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 99px; width: 0%; transition: width .4s ease; }
+  .progress-text { font-size: 13px; color: var(--muted); font-family: var(--mono); }
+  .log-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 16px; height: 200px; overflow-y: auto; font-family: var(--mono); font-size: 12px; line-height: 1.7; margin-top: 16px; }
+  .log-entry { display: flex; gap: 10px; align-items: flex-start; }
+  .log-time { color: var(--muted); flex-shrink: 0; }
+  .log-ok { color: var(--green); }
+  .log-err { color: var(--red); }
+  .log-info { color: var(--accent); }
+  .log-warn { color: var(--yellow); }
+  .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 16px; }
+  .summary-item { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; text-align: center; }
+  .summary-item .num { font-size: 28px; font-weight: 700; font-family: var(--mono); }
+  .summary-item .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; margin-top: 4px; }
+  .num-ok { color: var(--green); }
+  .num-err { color: var(--red); }
+  .num-skip { color: var(--muted); }
+  .num-total { color: var(--accent); }
+  .empty { text-align: center; padding: 40px; color: var(--muted); font-size: 14px; }
+  .empty span { display: block; font-size: 28px; margin-bottom: 10px; }
+  .toggle-row { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); margin-top: 12px; cursor: pointer; user-select: none; }
+  .toggle-row input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
+  .help-text { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+  .section-divider { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+  @media (max-width: 600px) { .row2 { grid-template-columns: 1fr; } .summary-grid { grid-template-columns: repeat(2, 1fr); } }
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+</style>
+</head>
+<body>
+<div class="wrapper">
+
+  <header>
+    <div class="logo">🔧</div>
+    <div>
+      <h1>Automação Trello</h1>
+      <p>OAB SP · Atualização de cards por planilha</p>
+    </div>
+  </header>
+
+  <!-- Microsoft Login -->
+  <div class="card">
+    <div class="card-title">Conta Microsoft · OneDrive</div>
+    <button class="btn-ms" id="btnMsLogin" onclick="msLogin()">
+      <svg width="20" height="20" viewBox="0 0 21 21" fill="none"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
+      Entrar com conta Microsoft
+    </button>
+    <div class="ms-user-info" id="msUserInfo">
+      <span>✓</span><span id="msUserName"></span>
+    </div>
+    <p class="help-text" style="margin-top:10px">A planilha será lida e atualizada diretamente no OneDrive — as fórmulas nunca são tocadas.</p>
+  </div>
+
+  <!-- Credenciais Trello -->
+  <div class="card">
+    <div class="card-title">Credenciais Trello</div>
+    <div class="row2">
+      <div class="field">
+        <label>Trello API Key</label>
+        <input type="password" id="trelloKey" placeholder="••••••••••••••••" autocomplete="off" oninput="checkReadyToRun()">
+      </div>
+      <div class="field">
+        <label>Trello Token</label>
+        <input type="password" id="trelloToken" placeholder="••••••••••••••••" autocomplete="off" oninput="checkReadyToRun()">
+      </div>
+    </div>
+    <label class="toggle-row">
+      <input type="checkbox" id="saveCredsCheck"> Salvar credenciais no navegador
+    </label>
+  </div>
+
+  <!-- Preview cards -->
+  <div class="card" id="previewCard" style="display:none">
+    <div class="card-title">Preview · Cards Encontrados</div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Subseção</th>
+            <th>Card ID</th>
+            <th>Descrição</th>
+            <th>Capa</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="previewBody"></tbody>
+      </table>
+    </div>
+    <div id="emptyState" class="empty" style="display:none">
+      <span>📭</span>Nenhum card marcado para atualização.
+    </div>
+  </div>
+
+  <!-- Upload pasta de imagens -->
+  <div class="card" id="imgCard" style="display:none">
+    <div class="card-title">Imagens de Capa</div>
+    <p class="help-text" style="margin-bottom:16px">
+      Selecione a pasta com as imagens de capa. O nome do arquivo deve corresponder ao nome da subseção (ex: <code style="color:var(--accent)">Adamantina.jpg</code>).
+    </p>
+    <div class="upload-area" id="imgUploadArea">
+      <input type="file" id="imgInput" accept="image/*" multiple webkitdirectory>
+      <div class="upload-icon">🖼️</div>
+      <p><strong>Clique para selecionar</strong> a pasta de imagens</p>
+    </div>
+    <div id="imgStatus" style="margin-top:12px; font-size:13px; color:var(--muted); font-family:var(--mono)"></div>
+  </div>
+
+  <!-- Executar -->
+  <div class="card">
+    <div class="card-title">Execução</div>
+    <button class="btn-run" id="btnRun" disabled onclick="runAutomation()">
+      ▶ Executar Automação
+    </button>
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progressFill"></div>
+      </div>
+      <div class="progress-text" id="progressText">Aguardando...</div>
+    </div>
+    <div class="log-box" id="logBox" style="display:none"></div>
+    <div class="summary-grid" id="summaryGrid" style="display:none">
+      <div class="summary-item"><div class="num num-total" id="sTotal">0</div><div class="lbl">Total</div></div>
+      <div class="summary-item"><div class="num num-ok" id="sOk">0</div><div class="lbl">Sucesso</div></div>
+      <div class="summary-item"><div class="num num-err" id="sErr">0</div><div class="lbl">Erro</div></div>
+      <div class="summary-item"><div class="num num-skip" id="sSkip">0</div><div class="lbl">Pulados</div></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ─────────────────────────────────────────────
+// Config
+// ─────────────────────────────────────────────
+const CLIENT_ID   = 'eb13e259-9584-4442-9ef0-fd57346d0988';
+const TENANT_ID   = 'common';
+// SharePoint host e caminho do arquivo extraído do link compartilhado
+const SP_HOSTNAME = 'informaticaoabsporg-my.sharepoint.com';
+const FILE_DRIVE_PATH = '/drives/root:/subsecoes.xlsx'; // será resolvido dinamicamente
+
+// ─────────────────────────────────────────────
+// MSAL setup
+// ─────────────────────────────────────────────
+const msalConfig = {
+  auth: {
+    clientId: CLIENT_ID,
+    authority: `https://login.microsoftonline.com/${TENANT_ID}`,
+    redirectUri: "https://sgeraloab.github.io/trello-oabsp/"
+  },
+  cache: { cacheLocation: 'localStorage', storeAuthStateInCookie: false }
+};
+const SCOPES = ['Files.ReadWrite', 'offline_access', 'User.Read'];
+let msalInstance = null;
+
+async function getMsalInstance() {
+  if (!msalInstance) {
+    // Aguardar até 10s para o MSAL carregar
+    let attempts = 0;
+    while ((!window.msal || !window.msal.PublicClientApplication) && attempts < 100) {
+      await new Promise(r => setTimeout(r, 100));
+      attempts++;
+    }
+    if (!window.msal || !window.msal.PublicClientApplication) {
+      throw new Error('Biblioteca MSAL não carregou. Verifique sua conexão e recarregue a página.');
+    }
+    msalInstance = new window.msal.PublicClientApplication(msalConfig);
+    await msalInstance.initialize();
+  }
+  return msalInstance;
+}
+
+let msAccessToken = null;
+let driveId = null;
+let fileItemId = null;
+
+// ─────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────
+let controleRows = [];
+let dadosMap     = {};
+let inscritosMap = {};
+let imagesMap    = {};
+let stats        = { total: 0, ok: 0, err: 0, skip: 0 };
+
+// Column indexes in Controle sheet (0-based, resolved after reading header)
+let colIndexes = {};
+
+const TEMPLATE = `# {{SUBSECAO}}
+## Dados Gerais
+- Porte: {{PORTE}}
+- Inscritos: {{INSCRITOS}}
+- Inadimplência: {{INADIMPLENCIA}}
+- Funcionários: {{FUNCIONARIOS}}
+## Diretoria
+- Presidente: {{PRESIDENTE}}
+- Vice-Presidente: {{VICE_PRESIDENTE}}
+- Secretário(a)-Geral: {{SECRETARIO_GERAL}}
+- Secretário(a)-Geral Adjunto(a): {{SECRETARIO_ADJUNTO}}
+- Tesoureiro(a): {{TESOUREIRO}}
+## Estrutura Institucional
+- Divisão Administrativa: {{DIVISAO_ADMINISTRATIVA}}
+- Conselheiros da Região: {{CONSELHEIROS}}
+- TED: {{TED}}
+- Subseção de Referência para Prerrogativas: {{PRERROGATIVAS}}
+## Patrimônio Imobiliário
+- Quantidade de imóveis: {{IMOVEIS_QTD}}
+- Imóveis próprios: {{IMOVEIS_PROPRIO}}
+- Imóveis locados: {{IMOVEIS_LOCACAO}}
+- Imóveis em comodato: {{IMOVEIS_COMODATO}}
+## Serviços
+- Autoatendimento: {{AUTOATENDIMENTO}}
+- Quantidade de unidades: {{AUTOATENDIMENTO_QTD}}
+- ESA: {{ESA}}
+## Projetos Institucionais
+- OAB SP Vai Até Você: {{OABVC}}`;
+
+// ─────────────────────────────────────────────
+// Microsoft Login
+// ─────────────────────────────────────────────
+async function msLogin() {
+  const btn = document.getElementById('btnMsLogin');
+  btn.classList.add('loading');
+  btn.textContent = 'Conectando...';
+  try {
+    const msalApp = await getMsalInstance();
+
+    // Handle redirect response if returning from login
+    await msalApp.handleRedirectPromise();
+
+    let account = msalApp.getAllAccounts()[0];
+    let tokenResponse;
+
+    if (account) {
+      try {
+        tokenResponse = await msalApp.acquireTokenSilent({ scopes: SCOPES, account });
+      } catch(e) {
+        tokenResponse = await msalApp.acquireTokenPopup({ scopes: SCOPES });
+      }
+    } else {
+      tokenResponse = await msalApp.acquireTokenPopup({ scopes: SCOPES });
+    }
+
+    msAccessToken = tokenResponse.accessToken;
+    account = tokenResponse.account;
+
+    btn.classList.remove('loading');
+    btn.classList.add('connected');
+    btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 21 21" fill="none"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg> ✓ Conectado`;
+
+    const userInfo = document.getElementById('msUserInfo');
+    userInfo.style.display = 'flex';
+    document.getElementById('msUserName').textContent = account.username || account.name || 'Usuário conectado';
+
+    // Try to save creds
+    try {
+      const k = localStorage.getItem('trello_key');
+      const t = localStorage.getItem('trello_token');
+      if (k) { document.getElementById('trelloKey').value = k; document.getElementById('saveCredsCheck').checked = true; }
+      if (t) { document.getElementById('trelloToken').value = t; }
+    } catch(e) {}
+
+    // Now load the spreadsheet
+    await loadSpreadsheetFromOneDrive();
+
+  } catch(e) {
+    btn.classList.remove('loading');
+    btn.innerHTML = `<svg width="20" height="20" viewBox="0 0 21 21" fill="none"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg> Entrar com conta Microsoft`;
+    if (e.name !== 'BrowserAuthError' && e.name !== 'UserCancelledError') {
+      alert('Erro ao autenticar: ' + e.message);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────
+// Load spreadsheet via Graph API
+// ─────────────────────────────────────────────
+async function graphGet(url) {
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${msAccessToken}` } });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Graph API ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+async function graphPatch(url, body) {
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${msAccessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`Graph API PATCH ${res.status}: ${txt}`);
+  }
+  return res.json();
+}
+
+async function loadSpreadsheetFromOneDrive() {
+  log('🔍 Localizando planilha no OneDrive...', 'info');
+  try {
+    // Resolve file using sharing URL
+    const sharingUrl = 'https://informaticaoabsporg-my.sharepoint.com/:x:/g/personal/secretaria_geral_oabsp_org_br/IQCe8v-MxxrrS6koFKIedyFaARoUaJe9azeBPjVa5Hkkh4Y?e=3V1tVl';
+    // Encode sharing URL to base64url
+    const encoded = btoa(sharingUrl).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    const shareToken = `u!${encoded}`;
+
+    const item = await graphGet(`https://graph.microsoft.com/v1.0/shares/${shareToken}/driveItem`);
+    driveId    = item.parentReference.driveId;
+    fileItemId = item.id;
+
+    log('✓ Planilha encontrada: ' + item.name, 'ok');
+
+    // Read Controle sheet
+    log('📖 Lendo aba Controle...', 'info');
+    const controleData = await graphGet(
+      `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${fileItemId}/workbook/worksheets/Controle/usedRange`
+    );
+    parseControle(controleData.values);
+
+    // Read Dados sheet
+    log('📖 Lendo aba Dados...', 'info');
+    const dadosData = await graphGet(
+      `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${fileItemId}/workbook/worksheets/Dados/usedRange`
+    );
+    parseDados(dadosData.values);
+
+    log(`✓ ${controleRows.length} cards carregados`, 'ok');
+    renderPreview();
+    checkReadyToRun();
+
+  } catch(e) {
+    log('✗ Erro ao carregar planilha: ' + e.message, 'err');
+    alert('Não foi possível acessar a planilha.\n\n' + e.message);
+  }
+}
+
+function parseControle(values) {
+  if (!values || values.length < 2) return;
+  const headers = values[0].map(h => String(h || '').trim());
+
+  // Map header names to column indexes
+  headers.forEach((h, i) => { colIndexes[h] = i; });
+
+  controleRows = [];
+  for (let r = 1; r < values.length; r++) {
+    const row = values[r];
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = row[i] !== undefined ? row[i] : ''; });
+    obj.__rowIndex = r; // 0-based row index in sheet (0 = header)
+    if (String(obj['CARD_ID'] || '').trim()) {
+      controleRows.push(obj);
+    }
+  }
+}
+
+function parseDados(values) {
+  if (!values || values.length < 2) return;
+  const headers = values[0].map(h => String(h || '').trim());
+  dadosMap = {};
+  for (let r = 1; r < values.length; r++) {
+    const row = values[r];
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = row[i] !== undefined ? row[i] : ''; });
+    const key = normalizeKey(String(obj['SUBSEÇÕES'] || ''));
+    if (key) dadosMap[key] = obj;
+  }
+}
+
+// ─────────────────────────────────────────────
+// Render preview table
+// ─────────────────────────────────────────────
+function renderPreview() {
+  const card  = document.getElementById('previewCard');
+  const tbody = document.getElementById('previewBody');
+  const empty = document.getElementById('emptyState');
+  const imgCard = document.getElementById('imgCard');
+
+  card.style.display = 'block';
+  tbody.innerHTML = '';
+
+  let hasCapa = false;
+  const active = controleRows.filter(r => isYes(r['ATUALIZAR_DESC']) || isYes(r['ATUALIZAR_CAPA']));
+
+  if (active.length === 0) { empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+
+  active.forEach(r => {
+    const subsecao = String(r['SUBSEÇÕES'] || '').trim();
+    const cardId   = String(r['CARD_ID'] || '').trim();
+    const aDesc    = isYes(r['ATUALIZAR_DESC']);
+    const aCapa    = isYes(r['ATUALIZAR_CAPA']);
+    const hasDados = !!dadosMap[normalizeKey(subsecao)];
+    if (aCapa) hasCapa = true;
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${subsecao || '—'}</td>
+      <td style="font-family:var(--mono);font-size:12px;color:var(--muted)">${cardId}</td>
+      <td>${aDesc ? (hasDados ? '<span class="badge badge-sim">✓ Sim</span>' : '<span class="badge badge-pendente">⚠ Sem dados</span>') : '<span class="badge badge-nao">— Não</span>'}</td>
+      <td>${aCapa ? '<span class="badge badge-sim">✓ Sim</span>' : '<span class="badge badge-nao">— Não</span>'}</td>
+      <td><span class="badge badge-pendente" id="status-${cardId}">⏳ Pendente</span></td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  if (hasCapa) imgCard.style.display = 'block';
+}
+
+// ─────────────────────────────────────────────
+// Check ready
+// ─────────────────────────────────────────────
+function checkReadyToRun() {
+  const key   = document.getElementById('trelloKey').value.trim();
+  const token = document.getElementById('trelloToken').value.trim();
+  const ready = key && token && msAccessToken && controleRows.length > 0;
+  document.getElementById('btnRun').disabled = !ready;
+}
+
+// ─────────────────────────────────────────────
+// Images
+// ─────────────────────────────────────────────
+document.getElementById('imgInput').addEventListener('change', function() {
+  imagesMap = {};
+  Array.from(this.files).forEach(f => {
+    const name = normalizeKey(f.name.replace(/\.[^/.]+$/, ''));
+    imagesMap[name] = f;
+  });
+  document.getElementById('imgStatus').textContent = `✓ ${Object.keys(imagesMap).length} imagem(ns) carregada(s)`;
+  checkReadyToRun();
+});
+
+// ─────────────────────────────────────────────
+// Main run
+// ─────────────────────────────────────────────
+async function runAutomation() {
+  const key   = document.getElementById('trelloKey').value.trim();
+  const token = document.getElementById('trelloToken').value.trim();
+
+  if (document.getElementById('saveCredsCheck').checked) {
+    try { localStorage.setItem('trello_key', key); localStorage.setItem('trello_token', token); } catch(e) {}
+  } else {
+    try { localStorage.removeItem('trello_key'); localStorage.removeItem('trello_token'); } catch(e) {}
+  }
+
+  const btn = document.getElementById('btnRun');
+  btn.disabled = true;
+  btn.textContent = '⏳ Executando...';
+
+  const progressWrap = document.getElementById('progressWrap');
+  const progressFill = document.getElementById('progressFill');
+  const progressText = document.getElementById('progressText');
+  const logBox       = document.getElementById('logBox');
+  const summaryGrid  = document.getElementById('summaryGrid');
+
+  progressWrap.classList.add('visible');
+  logBox.style.display = 'block';
+  summaryGrid.style.display = 'none';
+  logBox.innerHTML = '';
+
+  stats = { total: 0, ok: 0, err: 0, skip: 0 };
+
+  const toProcess = controleRows.filter(r => isYes(r['ATUALIZAR_DESC']) || isYes(r['ATUALIZAR_CAPA']));
+  stats.total = toProcess.length;
+  let done = 0;
+
+  // Collect cell updates to batch-write to OneDrive at the end
+  // Each entry: { rowIndex (0-based in sheet), colDesc, colCapa, dateDesc, dateCapa }
+  const cellUpdates = []; // { address, value }
+
+  const colDescIdx  = colIndexes['DATA_DESC'];
+  const colCapaIdx  = colIndexes['DATA_CAPA'];
+  const colADescIdx = colIndexes['ATUALIZAR_DESC'];
+  const colACapaIdx = colIndexes['ATUALIZAR_CAPA'];
+
+  // Convert col index to Excel column letter
+  function colLetter(idx) {
+    let letter = '';
+    let n = idx + 1;
+    while (n > 0) {
+      const rem = (n - 1) % 26;
+      letter = String.fromCharCode(65 + rem) + letter;
+      n = Math.floor((n - 1) / 26);
+    }
+    return letter;
+  }
+
+  for (const row of toProcess) {
+    const subsecao = String(row['SUBSEÇÕES'] || '').trim();
+    const cardId   = String(row['CARD_ID'] || '').trim();
+    const aDesc    = isYes(row['ATUALIZAR_DESC']);
+    const aCapa    = isYes(row['ATUALIZAR_CAPA']);
+    const sheetRow = row.__rowIndex + 1; // 1-based Excel row
+
+    done++;
+    const pct = Math.round((done / toProcess.length) * 100);
+    progressFill.style.width = pct + '%';
+    progressText.textContent = `${done} / ${toProcess.length} cards processados`;
+
+    let rowOk = true;
+
+    // Update description
+    if (aDesc) {
+      const dados = dadosMap[normalizeKey(subsecao)];
+      if (!dados) {
+        log(`[${subsecao}] ⚠ Dados não encontrados na aba Dados — pulando descrição`, 'warn');
+        stats.skip++;
+        rowOk = false;
+      } else {
+        const desc = fillTemplate(dados);
+        try {
+          await trelloUpdateDesc(cardId, desc, key, token);
+          const today = todayBR();
+          if (colDescIdx !== undefined) {
+            cellUpdates.push({ address: `${colLetter(colDescIdx)}${sheetRow}`, value: today });
+          }
+          log(`[${subsecao}] ✓ Descrição atualizada`, 'ok');
+        } catch(err) {
+          log(`[${subsecao}] ✗ Erro ao atualizar descrição: ${err.message}`, 'err');
+          stats.err++;
+          rowOk = false;
+        }
+        await delay(200);
+      }
+    }
+
+    // Upload cover
+    if (aCapa) {
+      const imgKey  = normalizeKey(subsecao);
+      const imgFile = imagesMap[imgKey];
+      if (!imgFile) {
+        log(`[${subsecao}] ⚠ Imagem não encontrada — pulando capa`, 'warn');
+        stats.skip++;
+        rowOk = false;
+      } else {
+        try {
+          // Remove capa atual do card antes de deletar anexos
+          await trelloRemoveCover(cardId, key, token);
+          await delay(150);
+          const attachments = await trelloGetAttachments(cardId, key, token);
+          const covers = attachments.filter(a => a.isUpload);
+          for (const att of covers) {
+            await trelloDeleteAttachment(cardId, att.id, key, token);
+            await delay(150);
+          }
+          if (covers.length > 0) log(`[${subsecao}] 🗑 ${covers.length} anexo(s) removido(s)`, 'info');
+          await delay(200);
+          await trelloUploadCover(cardId, imgFile, key, token);
+          const today = todayBR();
+          if (colCapaIdx !== undefined) {
+            cellUpdates.push({ address: `${colLetter(colCapaIdx)}${sheetRow}`, value: today });
+          }
+          log(`[${subsecao}] ✓ Capa atualizada`, 'ok');
+        } catch(err) {
+          log(`[${subsecao}] ✗ Erro ao atualizar capa: ${err.message}`, 'err');
+          stats.err++;
+          rowOk = false;
+        }
+        await delay(300);
+      }
+    }
+
+    if (rowOk && (aDesc || aCapa)) stats.ok++;
+
+    const badge = document.getElementById(`status-${cardId}`);
+    if (badge) {
+      badge.className = rowOk ? 'badge badge-ok' : 'badge badge-erro';
+      badge.textContent = rowOk ? '✓ OK' : '✗ Erro';
+    }
+  }
+
+  // ── Write date cells back to OneDrive via Graph API (cell by cell PATCH)
+  if (cellUpdates.length > 0) {
+    log(`💾 Gravando ${cellUpdates.length} célula(s) de data no OneDrive...`, 'info');
+    let writeOk = 0;
+    for (const u of cellUpdates) {
+      try {
+        await graphPatch(
+          `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${fileItemId}/workbook/worksheets/Controle/range(address='${u.address}')`,
+          { values: [[u.value]] }
+        );
+        writeOk++;
+      } catch(e) {
+        log(`⚠ Erro ao gravar célula ${u.address}: ${e.message}`, 'warn');
+      }
+      await delay(100);
+    }
+    log(`✓ ${writeOk}/${cellUpdates.length} células gravadas no OneDrive`, 'ok');
+  }
+
+  log(`─── Concluído: ${stats.ok} OK · ${stats.err} erro(s) · ${stats.skip} pulado(s) ───`, 'info');
+
+  document.getElementById('sTotal').textContent = stats.total;
+  document.getElementById('sOk').textContent    = stats.ok;
+  document.getElementById('sErr').textContent   = stats.err;
+  document.getElementById('sSkip').textContent  = stats.skip;
+  summaryGrid.style.display = 'grid';
+
+  btn.disabled = false;
+  btn.textContent = '▶ Executar Novamente';
+}
+
+// ─────────────────────────────────────────────
+// Trello API
+// ─────────────────────────────────────────────
+async function trelloRemoveCover(cardId, key, token) {
+  try {
+    await fetch(`https://api.trello.com/1/cards/${cardId}?key=${key}&token=${token}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cover: { value: 'none' } })
+    });
+  } catch(e) { /* ignora se não tiver capa */ }
+}
+async function trelloUpdateDesc(cardId, desc, key, token) {
+  const res = await fetch(`https://api.trello.com/1/cards/${cardId}?key=${key}&token=${token}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ desc })
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+async function trelloGetAttachments(cardId, key, token) {
+  const res = await fetch(`https://api.trello.com/1/cards/${cardId}/attachments?key=${key}&token=${token}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+async function trelloDeleteAttachment(cardId, attachmentId, key, token) {
+  const res = await fetch(`https://api.trello.com/1/cards/${cardId}/attachments/${attachmentId}?key=${key}&token=${token}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
+async function trelloUploadCover(cardId, file, key, token) {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('key', key);
+  formData.append('token', token);
+  formData.append('setCover', 'true');
+  const res = await fetch(`https://api.trello.com/1/cards/${cardId}/attachments`, { method: 'POST', body: formData });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+// ─────────────────────────────────────────────
+// Template
+// ─────────────────────────────────────────────
+function fillTemplate(dados) {
+  const v = k => { const val = dados[k]; return (val === undefined || val === null || val === '') ? '' : String(val); };
+  return TEMPLATE
+    .replace('{{SUBSECAO}}',            v('SUBSEÇÕES'))
+    .replace('{{PORTE}}',               v('PORTE'))
+    .replace('{{INSCRITOS}}',           v('INSCRITOS'))
+    .replace('{{INADIMPLENCIA}}',       extractPercent(v('Inadimplencia')))
+    .replace('{{FUNCIONARIOS}}',        v('Funcionarios'))
+    .replace('{{PRESIDENTE}}',          v('PRESIDENTE'))
+    .replace('{{VICE_PRESIDENTE}}',     v('VICE_PRESIDENTE'))
+    .replace('{{SECRETARIO_GERAL}}',    v('SECRETARIO_GERAL'))
+    .replace('{{SECRETARIO_ADJUNTO}}',  v('SECRETARIO_ADJUNTO'))
+    .replace('{{TESOUREIRO}}',          v('TESOUREIRO'))
+    .replace('{{DIVISAO_ADMINISTRATIVA}}', v('DIVISAO_ADMINISTRATIVA'))
+    .replace('{{CONSELHEIROS}}',        formatList(v('CONSELHEIROS')))
+    .replace('{{TED}}',                 v('TED'))
+    .replace('{{PRERROGATIVAS}}',       v('PRERROGATIVAS'))
+    .replace('{{IMOVEIS_QTD}}',         v('IMOVEIS_QTD'))
+    .replace('{{IMOVEIS_PROPRIO}}',     v('IMOVEIS_PROPRIO'))
+    .replace('{{IMOVEIS_LOCACAO}}',     v('IMOVEIS_LOCACAO'))
+    .replace('{{IMOVEIS_COMODATO}}',    v('IMOVEIS_COMODATO'))
+    .replace('{{AUTOATENDIMENTO}}',     v('AUTOATENDIMENTO'))
+    .replace('{{AUTOATENDIMENTO_QTD}}', v('AUTOATENDIMENTO_QTD'))
+    .replace('{{ESA}}',                 v('ESA'))
+    .replace('{{OABVC}}',               excelDateToBR(v('OABVC')));
+}
+
+// ─────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────
+function todayBR() { return new Date().toLocaleDateString('pt-BR'); }
+function excelDateToBR(val) {
+  if (!val && val !== 0) return '';
+  const str = String(val).trim();
+  // Already formatted as dd/mm/yyyy
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(str)) return str;
+  // Excel serial number
+  const num = parseFloat(str);
+  if (!isNaN(num) && num > 1000) {
+    const date = new Date(Math.round((num - 25569) * 86400 * 1000));
+    return date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+  }
+  return str || '';
+}
+function isYes(val) { return String(val || '').trim().toLowerCase() === 'sim'; }
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+function normalizeKey(str) {
+  return String(str).normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase().replace(/\s+/g, '_');
+}
+function titleCasePT(str) {
+  const minusculas = new Set(['da','de','do','dos','das','di','du','e','em','na','no','nas','nos','a','o','ao','pela','pelo','pelas','pelos','para','com','sem','sob','por','entre','até']);
+  return str.toLowerCase().split(' ').map((word, i) => {
+    if (i !== 0 && minusculas.has(word)) return word;
+    return word.charAt(0).toUpperCase() + word.slice(1);
+  }).join(' ');
+}
+function formatList(val) {
+  if (!val) return '';
+  const items = val.split(',').map(s => titleCasePT(s.trim().replace(/[-–—]+$/, '').trim())).filter(Boolean);
+  if (items.length === 1) return items[0];
+  return '\n  - ' + items.join('\n  - ');
+}
+function extractPercent(val) {
+  if (!val) return '';
+  const str = String(val);
+  const match = str.match(/\(?(\d+(?:[.,]\d+)?%?)\)?/);
+  if (match) { const pct = match[1].endsWith('%') ? match[1] : match[1] + '%'; return pct; }
+  return str.trim();
+}
+function log(msg, type = 'info') {
+  const box = document.getElementById('logBox');
+  box.style.display = 'block';
+  const now = new Date().toLocaleTimeString('pt-BR');
+  const div = document.createElement('div');
+  div.className = 'log-entry';
+  div.innerHTML = `<span class="log-time">${now}</span><span class="log-${type}">${msg}</span>`;
+  box.appendChild(div);
+  box.scrollTop = box.scrollHeight;
+}
+</script>
+</body>
+</html>

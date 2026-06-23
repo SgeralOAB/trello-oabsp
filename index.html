@@ -746,20 +746,8 @@ async function runAutomation() {
 
   // ── Write date cells back to OneDrive via Graph API (cell by cell PATCH)
   if (cellUpdates.length > 0) {
-    log(`💾 Gravando ${cellUpdates.length} célula(s) de data no OneDrive...`, 'info');
-    let writeOk = 0;
-    for (const u of cellUpdates) {
-      try {
-        await graphPatch(
-          `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${fileItemId}/workbook/worksheets/Controle/range(address='${u.address}')`,
-          { values: [[u.value]] }
-        );
-        writeOk++;
-      } catch(e) {
-        log(`⚠ Erro ao gravar célula ${u.address}: ${e.message}`, 'warn');
-      }
-      await delay(100);
-    }
+    log(`💾 Gravando ${cellUpdates.length} célula(s) de data no OneDrive em blocos...`, 'info');
+    const writeOk = await writeDateUpdatesFast(cellUpdates);
     log(`✓ ${writeOk}/${cellUpdates.length} células gravadas no OneDrive`, 'ok');
   }
 
@@ -811,6 +799,56 @@ async function trelloUploadCover(cardId, file, key, token) {
   const res = await fetch(`https://api.trello.com/1/cards/${cardId}/attachments`, { method: 'POST', body: formData });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
+}
+
+async function writeDateUpdatesFast(cellUpdates) {
+  const parsed = cellUpdates
+    .map(u => {
+      const match = String(u.address).match(/^([A-Z]+)(\d+)$/);
+      return match ? { col: match[1], row: Number(match[2]), value: u.value, address: u.address } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.col.localeCompare(b.col) || a.row - b.row);
+
+  const groups = [];
+  for (const item of parsed) {
+    const last = groups[groups.length - 1];
+    if (last && last.col === item.col && last.endRow + 1 === item.row) {
+      last.endRow = item.row;
+      last.items.push(item);
+    } else {
+      groups.push({ col: item.col, startRow: item.row, endRow: item.row, items: [item] });
+    }
+  }
+
+  let writeOk = 0;
+  for (const group of groups) {
+    const address = group.startRow === group.endRow
+      ? `${group.col}${group.startRow}`
+      : `${group.col}${group.startRow}:${group.col}${group.endRow}`;
+
+    try {
+      await graphPatch(
+        `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${fileItemId}/workbook/worksheets/Controle/range(address='${address}')`,
+        { values: group.items.map(item => [item.value]) }
+      );
+      writeOk += group.items.length;
+    } catch(e) {
+      log(`⚠ Erro ao gravar bloco ${address}; tentando célula por célula...`, 'warn');
+      for (const item of group.items) {
+        try {
+          await graphPatch(
+            `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${fileItemId}/workbook/worksheets/Controle/range(address='${item.address}')`,
+            { values: [[item.value]] }
+          );
+          writeOk++;
+        } catch(cellErr) {
+          log(`⚠ Erro ao gravar célula ${item.address}: ${cellErr.message}`, 'warn');
+        }
+      }
+    }
+  }
+  return writeOk;
 }
 
 // ─────────────────────────────────────────────

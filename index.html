@@ -449,8 +449,8 @@ try {
     // Read Dados sheet
     log('📖 Lendo aba Dados...', 'info');
     const dadosData = await graphGet(
-      `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${fileItemId}/workbook/worksheets/Dados/usedRange`
-    );
+  `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${fileItemId}/workbook/worksheets/Dados/usedRange(valuesOnly=true)`
+);
     parseDados(dadosData.values);
 
     log(`✓ ${controleRows.length} cards carregados`, 'ok');

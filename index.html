@@ -642,6 +642,7 @@ async function runAutomation() {
   // Collect cell updates to batch-write to OneDrive at the end
   // Each entry: { rowIndex (0-based in sheet), colDesc, colCapa, dateDesc, dateCapa }
   const cellUpdates = []; // { address, value }
+  const UPDATED_MARKER = 'Atualizado';
 
   const colDescIdx  = colIndexes['DATA_DESC'];
   const colCapaIdx  = colIndexes['DATA_CAPA'];
@@ -689,6 +690,9 @@ async function runAutomation() {
           if (colDescIdx !== undefined) {
             cellUpdates.push({ address: `${colLetter(colDescIdx)}${sheetRow}`, value: today });
           }
+          if (colADescIdx !== undefined) {
+            cellUpdates.push({ address: `${colLetter(colADescIdx)}${sheetRow}`, value: UPDATED_MARKER });
+          }
           log(`[${subsecao}] ✓ Descrição atualizada`, 'ok');
         } catch(err) {
           log(`[${subsecao}] ✗ Erro ao atualizar descrição: ${err.message}`, 'err');
@@ -725,6 +729,9 @@ async function runAutomation() {
           if (colCapaIdx !== undefined) {
             cellUpdates.push({ address: `${colLetter(colCapaIdx)}${sheetRow}`, value: today });
           }
+          if (colACapaIdx !== undefined) {
+            cellUpdates.push({ address: `${colLetter(colACapaIdx)}${sheetRow}`, value: UPDATED_MARKER });
+          }
           log(`[${subsecao}] ✓ Capa atualizada`, 'ok');
         } catch(err) {
           log(`[${subsecao}] ✗ Erro ao atualizar capa: ${err.message}`, 'err');
@@ -746,9 +753,9 @@ async function runAutomation() {
 
   // ── Write date cells back to OneDrive via Graph API (cell by cell PATCH)
   if (cellUpdates.length > 0) {
-    log(`💾 Gravando ${cellUpdates.length} célula(s) de data no OneDrive em blocos...`, 'info');
+    log(`💾 Gravando ${cellUpdates.length} alteração(ões) no OneDrive em blocos...`, 'info');
     const writeOk = await writeDateUpdatesFast(cellUpdates);
-    log(`✓ ${writeOk}/${cellUpdates.length} células gravadas no OneDrive`, 'ok');
+    log(`✓ ${writeOk}/${cellUpdates.length} alteração(ões) gravada(s) no OneDrive`, 'ok');
   }
 
   log(`─── Concluído: ${stats.ok} OK · ${stats.err} erro(s) · ${stats.skip} pulado(s) ───`, 'info');

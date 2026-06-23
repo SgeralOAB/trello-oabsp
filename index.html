@@ -67,6 +67,9 @@
   .btn-ms:hover { border-color: var(--accent); background: rgba(79,110,247,.05); }
   .btn-ms.connected { border-color: var(--green); background: rgba(34,197,94,.05); color: var(--green); }
   .btn-ms.loading { opacity: .6; cursor: not-allowed; }
+  .sheet-link-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: end; margin-top: 18px; }
+  .btn-small { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; color: var(--text); font-family: var(--font); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .btn-small:hover { border-color: var(--accent); background: rgba(79,110,247,.05); }
   .ms-user-info { margin-top: 12px; padding: 12px 16px; background: rgba(34,197,94,.08); border: 1px solid rgba(34,197,94,.25); border-radius: 10px; font-size: 13px; font-family: var(--mono); color: var(--green); display: none; align-items: center; gap: 8px; }
   .upload-area { border: 2px dashed var(--border); border-radius: 12px; padding: 32px; text-align: center; cursor: pointer; transition: border-color .2s, background .2s; position: relative; }
   .upload-area:hover, .upload-area.drag { border-color: var(--accent); background: rgba(79,110,247,.05); }
@@ -120,7 +123,7 @@
   .toggle-row input[type="checkbox"] { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
   .help-text { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
   .section-divider { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
-  @media (max-width: 600px) { .row2 { grid-template-columns: 1fr; } .summary-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) { .row2, .sheet-link-row { grid-template-columns: 1fr; } .summary-grid { grid-template-columns: repeat(2, 1fr); } }
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
@@ -146,6 +149,13 @@
     </button>
     <div class="ms-user-info" id="msUserInfo">
       <span>✓</span><span id="msUserName"></span>
+    </div>
+    <div class="sheet-link-row">
+      <div class="field" style="margin-bottom:0">
+        <label>Link da planilha OneDrive/SharePoint</label>
+        <input type="text" id="spreadsheetUrl" placeholder="Cole aqui o link de compartilhamento da planilha" autocomplete="off">
+      </div>
+      <button class="btn-small" type="button" onclick="reloadSpreadsheet()">Carregar planilha</button>
     </div>
     <p class="help-text" style="margin-top:10px">A planilha será lida e atualizada diretamente no OneDrive — as fórmulas nunca são tocadas.</p>
   </div>
@@ -236,6 +246,8 @@ const TENANT_ID   = 'common';
 // SharePoint host e caminho do arquivo extraído do link compartilhado
 const SP_HOSTNAME = 'informaticaoabsporg-my.sharepoint.com';
 const FILE_DRIVE_PATH = '/drives/root:/subsecoes.xlsx'; // será resolvido dinamicamente
+const DEFAULT_SPREADSHEET_URL = 'https://informaticaoabsporg-my.sharepoint.com/:x:/g/personal/secretaria_geral_oabsp_org_br/IQCe8v-MxxrrS6koFKIedyFaARoUaJe9azeBPjVa5Hkkh4Y?e=3V1tVl';
+const SPREADSHEET_URL_STORAGE_KEY = 'onedrive_spreadsheet_url';
 
 // ─────────────────────────────────────────────
 // MSAL setup
@@ -284,6 +296,8 @@ let stats        = { total: 0, ok: 0, err: 0, skip: 0 };
 // Column indexes in Controle sheet (0-based, resolved after reading header)
 let colIndexes = {};
 
+initSpreadsheetUrlField();
+
 const TEMPLATE = `# {{SUBSECAO}}
 ## Dados Gerais
 - Porte: {{PORTE}}
@@ -312,6 +326,36 @@ const TEMPLATE = `# {{SUBSECAO}}
 - ESA: {{ESA}}
 ## Projetos Institucionais
 - OAB SP Vai Até Você: {{OABVC}}`;
+
+function initSpreadsheetUrlField() {
+  const input = document.getElementById('spreadsheetUrl');
+  if (!input) return;
+  let savedUrl = '';
+  try { savedUrl = localStorage.getItem(SPREADSHEET_URL_STORAGE_KEY) || ''; } catch(e) {}
+  input.value = savedUrl || DEFAULT_SPREADSHEET_URL;
+  input.addEventListener('change', saveSpreadsheetUrl);
+}
+
+function getSpreadsheetUrl() {
+  const input = document.getElementById('spreadsheetUrl');
+  return (input ? input.value : '').trim();
+}
+
+function saveSpreadsheetUrl() {
+  const url = getSpreadsheetUrl();
+  try {
+    if (url) localStorage.setItem(SPREADSHEET_URL_STORAGE_KEY, url);
+    else localStorage.removeItem(SPREADSHEET_URL_STORAGE_KEY);
+  } catch(e) {}
+}
+
+async function reloadSpreadsheet() {
+  if (!msAccessToken) {
+    alert('Entre com a conta Microsoft antes de carregar a planilha.');
+    return;
+  }
+  await loadSpreadsheetFromOneDrive();
+}
 
 // ─────────────────────────────────────────────
 // Microsoft Login
@@ -398,46 +442,30 @@ async function graphPatch(url, body) {
 async function loadSpreadsheetFromOneDrive() {
   log('🔍 Localizando planilha no OneDrive...', 'info');
   try {
+    const sharingUrl = getSpreadsheetUrl();
+    if (!sharingUrl) {
+      throw new Error('Cole o link de compartilhamento da planilha no campo "Link da planilha".');
+    }
+    saveSpreadsheetUrl();
+    controleRows = [];
+    dadosMap = {};
+    colIndexes = {};
+    driveId = null;
+    fileItemId = null;
+    document.getElementById('previewCard').style.display = 'none';
+    document.getElementById('imgCard').style.display = 'none';
+    document.getElementById('btnRun').disabled = true;
+
     // Resolve file using sharing URL
-    const sharingUrl = 'https://informaticaoabsporg-my.sharepoint.com/:x:/r/personal/secretaria_geral_oabsp_org_br/Documents/1.%20Secretaria%20Geral/Trello/Microsoft/dados/subsecoes.xlsx?d=w8cfff29e1ac74beba92814a21e77215a&csf=1&web=1&e=klzYGh';
     // Encode sharing URL to base64url
-    const encoded = btoa(sharingUrl).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    const encoded = btoa(unescape(encodeURIComponent(sharingUrl))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
     const shareToken = `u!${encoded}`;
 
-    const item = await graphGet(
-  `https://graph.microsoft.com/v1.0/shares/${shareToken}/driveItem`
-);
+    const item = await graphGet(`https://graph.microsoft.com/v1.0/shares/${shareToken}/driveItem`);
+    driveId    = item.parentReference.driveId;
+    fileItemId = item.id;
 
-driveId    = item.parentReference.driveId;
-fileItemId = item.id;
-
-log('✓ Planilha encontrada: ' + item.name, 'ok');
-
-// FORÇA RECÁLCULO DO EXCEL ONLINE
-try {
-  log('🔄 Atualizando fórmulas da planilha...', 'info');
-
-  await fetch(
-    `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${fileItemId}/workbook/application/calculate`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${msAccessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        calculationType: 'Full'
-      })
-    }
-  );
-
-  await new Promise(resolve => setTimeout(resolve, 3000));
-
-  log('✓ Fórmulas recalculadas', 'ok');
-
-} catch (e) {
-  log('⚠ Não foi possível forçar o recálculo: ' + e.message, 'warn');
-}
+    log('✓ Planilha encontrada: ' + item.name, 'ok');
 
     // Read Controle sheet
     log('📖 Lendo aba Controle...', 'info');
@@ -449,8 +477,8 @@ try {
     // Read Dados sheet
     log('📖 Lendo aba Dados...', 'info');
     const dadosData = await graphGet(
-  `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${fileItemId}/workbook/worksheets/Dados/usedRange(valuesOnly=true)`
-);
+      `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${fileItemId}/workbook/worksheets/Dados/usedRange`
+    );
     parseDados(dadosData.values);
 
     log(`✓ ${controleRows.length} cards carregados`, 'ok');
@@ -459,7 +487,7 @@ try {
 
   } catch(e) {
     log('✗ Erro ao carregar planilha: ' + e.message, 'err');
-    alert('Não foi possível acessar a planilha.\n\n' + e.message);
+    alert('Não foi possível acessar a planilha.\n\nConfira o link no campo "Link da planilha" e clique em "Carregar planilha" novamente.\n\n' + e.message);
   }
 }
 

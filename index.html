@@ -404,11 +404,40 @@ async function loadSpreadsheetFromOneDrive() {
     const encoded = btoa(sharingUrl).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
     const shareToken = `u!${encoded}`;
 
-    const item = await graphGet(`https://graph.microsoft.com/v1.0/shares/${shareToken}/driveItem`);
-    driveId    = item.parentReference.driveId;
-    fileItemId = item.id;
+    const item = await graphGet(
+  `https://graph.microsoft.com/v1.0/shares/${shareToken}/driveItem`
+);
 
-    log('✓ Planilha encontrada: ' + item.name, 'ok');
+driveId    = item.parentReference.driveId;
+fileItemId = item.id;
+
+log('✓ Planilha encontrada: ' + item.name, 'ok');
+
+// FORÇA RECÁLCULO DO EXCEL ONLINE
+try {
+  log('🔄 Atualizando fórmulas da planilha...', 'info');
+
+  await fetch(
+    `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${fileItemId}/workbook/application/calculate`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${msAccessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        calculationType: 'Full'
+      })
+    }
+  );
+
+  await new Promise(resolve => setTimeout(resolve, 3000));
+
+  log('✓ Fórmulas recalculadas', 'ok');
+
+} catch (e) {
+  log('⚠ Não foi possível forçar o recálculo: ' + e.message, 'warn');
+}
 
     // Read Controle sheet
     log('📖 Lendo aba Controle...', 'info');

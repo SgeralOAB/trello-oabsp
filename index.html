@@ -296,6 +296,15 @@ let stats        = { total: 0, ok: 0, err: 0, skip: 0 };
 // Column indexes in Controle sheet (0-based, resolved after reading header)
 let colIndexes = {};
 
+const CONTROL_COLUMN_ALIASES = {
+  'SUBSEÇÕES': ['SUBSEÇÕES', 'SUBSECAO', 'SUBSEÇÃO', 'SUBSECOES', 'SUBSEÇÕES', 'NOME', 'SUBSECAO NOME'],
+  'CARD_ID': ['CARD_ID', 'CARD ID', 'ID_CARD', 'ID CARD', 'ID DO CARD', 'CARD'],
+  'ATUALIZAR_DESC': ['ATUALIZAR_DESC', 'ATUALIZAR DESC', 'ATUALIZAR_DESCRICAO', 'ATUALIZAR DESCRICAO', 'ATUALIZAR DESCRIÇÃO', 'DESCRICAO', 'DESCRIÇÃO'],
+  'ATUALIZAR_CAPA': ['ATUALIZAR_CAPA', 'ATUALIZAR CAPA', 'CAPA'],
+  'DATA_DESC': ['DATA_DESC', 'DATA DESC', 'DATA_DESCRICAO', 'DATA DESCRICAO', 'DATA DESCRIÇÃO'],
+  'DATA_CAPA': ['DATA_CAPA', 'DATA CAPA']
+};
+
 initSpreadsheetUrlField();
 
 const TEMPLATE = `# {{SUBSECAO}}
@@ -497,12 +506,20 @@ function parseControle(values) {
 
   // Map header names to column indexes
   headers.forEach((h, i) => { colIndexes[h] = i; });
+  Object.entries(CONTROL_COLUMN_ALIASES).forEach(([canonical, aliases]) => {
+    const idx = findColumnIndex(headers, aliases);
+    if (idx !== -1) colIndexes[canonical] = idx;
+  });
 
   controleRows = [];
   for (let r = 1; r < values.length; r++) {
     const row = values[r];
     const obj = {};
     headers.forEach((h, i) => { obj[h] = row[i] !== undefined ? row[i] : ''; });
+    Object.keys(CONTROL_COLUMN_ALIASES).forEach(canonical => {
+      const idx = colIndexes[canonical];
+      obj[canonical] = idx !== undefined ? (row[idx] !== undefined ? row[idx] : '') : '';
+    });
     obj.__rowIndex = r; // 0-based row index in sheet (0 = header)
     if (String(obj['CARD_ID'] || '').trim()) {
       controleRows.push(obj);
@@ -513,11 +530,13 @@ function parseControle(values) {
 function parseDados(values) {
   if (!values || values.length < 2) return;
   const headers = values[0].map(h => String(h || '').trim());
+  const subsecaoIdx = findColumnIndex(headers, CONTROL_COLUMN_ALIASES['SUBSEÇÕES']);
   dadosMap = {};
   for (let r = 1; r < values.length; r++) {
     const row = values[r];
     const obj = {};
     headers.forEach((h, i) => { obj[h] = row[i] !== undefined ? row[i] : ''; });
+    if (subsecaoIdx !== -1) obj['SUBSEÇÕES'] = row[subsecaoIdx] !== undefined ? row[subsecaoIdx] : '';
     const key = normalizeKey(String(obj['SUBSEÇÕES'] || ''));
     if (key) dadosMap[key] = obj;
   }
@@ -841,7 +860,23 @@ function excelDateToBR(val) {
   }
   return str || '';
 }
-function isYes(val) { return String(val || '').trim().toLowerCase() === 'sim'; }
+function normalizeHeader(str) {
+  return String(str || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toUpperCase();
+}
+function findColumnIndex(headers, aliases) {
+  const normalizedAliases = aliases.map(normalizeHeader);
+  return headers.findIndex(h => normalizedAliases.includes(normalizeHeader(h)));
+}
+function isYes(val) {
+  if (val === true || val === 1) return true;
+  const normalized = normalizeHeader(val);
+  return ['SIM', 'S', 'YES', 'Y', 'TRUE', 'VERDADEIRO', '1', 'X'].includes(normalized);
+}
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 function normalizeKey(str) {
   return String(str).normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase().replace(/\s+/g, '_');
